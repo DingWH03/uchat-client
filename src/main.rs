@@ -9,6 +9,8 @@ mod utils;
 use utils::{send_packet, read_packet, reader_packet, writer_packet};
 use protocol::{RegisterRequest, LoginRequest, SendMessageRequest, ServerResponse};
 
+use tokio::io::{AsyncBufReadExt, BufReader};
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut stream = TcpStream::connect("10.0.0.193:8080").await?;
@@ -77,13 +79,14 @@ async fn main() -> Result<()> {
         if let ServerResponse::AuthResponse { status, message } = server_response {
             if status == "success" {
                 println!("登录成功，开始聊天。输入 'exit' 退出。");
-                let (mut reader, mut writer) = stream.into_split();
+                let (reader, writer) = stream.into_split();
 
                 // 使用通道让输入输出并发运行
                 let (tx, mut rx) = mpsc::channel::<String>(32);
 
                 // 接收消息的任务
-                tokio::spawn(async move {
+                let recv_task = tokio::spawn(async move {
+                    let mut reader = BufReader::new(reader);
                     loop {
                         match reader_packet(&mut reader).await {
                             Ok(msg) => {
@@ -110,7 +113,8 @@ async fn main() -> Result<()> {
                 });
 
                 // 发送消息的任务
-                tokio::spawn(async move {
+                let send_task = tokio::spawn(async move {
+                    let mut writer = writer;
                     while let Some(input) = rx.recv().await {
                         if input == "exit" {
                             break;
@@ -134,16 +138,25 @@ async fn main() -> Result<()> {
                     }
                 });
 
-                // 主线程用于接收用户输入
-                loop {
-                    let mut input = String::new();
-                    io::stdin().read_line(&mut input)?;
-                    let input = input.trim().to_string();
-                    if input == "exit" {
-                        tx.send(input).await?;
-                        break;
+                // 用户输入的任务
+                let input_task = tokio::spawn(async move {
+                    let stdin = tokio::io::stdin();
+                    let reader = BufReader::new(stdin);
+                    let mut lines = reader.lines();
+
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let input = line.trim().to_string();
+                        if tx.send(input).await.is_err() {
+                            break;
+                        }
                     }
-                    tx.send(input).await?;
+                });
+
+                // 等待所有任务完成
+                tokio::select! {
+                    _ = recv_task => {},
+                    _ = send_task => {},
+                    _ = input_task => {},
                 }
             } else {
                 println!("登录失败: {}", message);

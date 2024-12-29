@@ -39,7 +39,8 @@ pub async fn writer_packet(writer: &mut tcp::OwnedWriteHalf, msg: &serde_json::V
     Ok(())
 }
 
-pub async fn reader_packet(reader: &mut tcp::OwnedReadHalf) -> Result<serde_json::Value> {
+// 修改后的 reader_packet 函数，支持 BufReader
+pub async fn reader_packet(reader: &mut tokio::io::BufReader<tcp::OwnedReadHalf>) -> Result<serde_json::Value> {
     let mut len_buf = [0u8; LENGTH_PREFIX_SIZE];
     reader.read_exact(&mut len_buf).await?;
     let msg_len = u32::from_be_bytes(len_buf) as usize;
