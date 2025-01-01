@@ -1,13 +1,13 @@
+use anyhow::Result;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use anyhow::Result;
 
 use std::io::{self, Write};
 
 mod protocol;
 mod utils;
-use utils::{send_packet, read_packet, reader_packet, writer_packet};
-use protocol::{RegisterRequest, LoginRequest, SendMessageRequest, ServerResponse};
+use protocol::{LoginRequest, RegisterRequest, Request, SendMessageRequest, ServerResponse};
+use utils::{read_packet, reader_packet, send_packet, writer_packet};
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -90,24 +90,30 @@ async fn main() -> Result<()> {
                     loop {
                         match reader_packet(&mut reader).await {
                             Ok(msg) => {
-                                if let Ok(server_response) = serde_json::from_value::<ServerResponse>(msg) {
+                                if let Ok(server_response) =
+                                    serde_json::from_value::<ServerResponse>(msg)
+                                {
                                     match server_response {
-                                        ServerResponse::ReceiveMessage { sender, message, timestamp } => {
+                                        ServerResponse::ReceiveMessage {
+                                            sender,
+                                            message,
+                                            timestamp,
+                                        } => {
                                             println!("\n[{}] {}: {}", timestamp, sender, message);
-                                        },
+                                        }
                                         ServerResponse::Error { message } => {
                                             println!("\n[错误] {}", message);
-                                        },
+                                        }
                                         _ => {
                                             println!("未知消息: {:?}", server_response);
-                                        },
+                                        }
                                     }
                                 }
-                            },
+                            }
                             Err(e) => {
                                 println!("读取消息时出错: {}", e);
                                 break;
-                            },
+                            }
                         }
                     }
                 });
@@ -118,6 +124,16 @@ async fn main() -> Result<()> {
                     while let Some(input) = rx.recv().await {
                         if input == "exit" {
                             break;
+                        } else if input == "users" {
+                            let request = Request {
+                                action: "request".to_string(),
+                                request: "online_users".to_string(),
+                            };
+                            let msg = serde_json::to_value(request).unwrap();
+                            if let Err(e) = writer_packet(&mut writer, &msg).await {
+                                println!("发送消息时出错: {}", e);
+                                break;
+                            }
                         }
 
                         // 简单格式: receiver: message

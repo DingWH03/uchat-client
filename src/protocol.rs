@@ -20,6 +20,11 @@ pub struct SendMessageRequest {
     pub receiver: String,
     pub message: String,
 }
+#[derive(Serialize, Deserialize)]
+pub struct Request {
+    pub action: String,
+    pub request: String,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action")]
@@ -38,5 +43,10 @@ pub enum ServerResponse {
     #[serde(rename = "error")]
     Error {
         message: String,
+    },
+    #[serde(rename = "online_users")]
+    OnlineUsers {
+        flag: String,
+        user_ids: Vec<String>,
     },
 }
